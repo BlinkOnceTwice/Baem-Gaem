@@ -1,0 +1,104 @@
+/*
+ * Lab_PWM.cpp
+ *
+ *  Created on: Sep 29, 2018
+ *      Author: Neeraj Dhavale
+ */
+
+#include "Lab_PWM.hpp"
+
+void LabPwm::PwmSelectAllPins()
+{
+    LPC_SC->PCONP |= (1<<6);
+    LPC_SC->PCLKSEL0 |= (1<<12)| (1<<13);
+    LPC_PINCON->PINSEL4 |= (uint32_t)(0x555);
+}
+
+void LabPwm::PwmSelectPin(LabPwm::Pin pwm_pin_arg)
+{
+    LPC_SC->PCONP |= (1<<6);
+    LPC_SC->PCLKSEL0 |= (1<<12)|(1<<13);
+
+    if(pwm_pin_arg == LabPwm::k2_0)
+    {
+        LPC_PINCON->PINSEL4 |= (1<<0);
+    }
+
+    if(pwm_pin_arg == LabPwm::k2_1)
+    {
+        LPC_PINCON->PINSEL4 |= (1<<2);
+    }
+    if(pwm_pin_arg == LabPwm::k2_2)
+    {
+        LPC_PINCON->PINSEL4 |= (1<<4);
+    }
+    if(pwm_pin_arg == LabPwm::k2_3)
+    {
+        LPC_PINCON->PINSEL4 |= (1<<6);
+    }
+    if(pwm_pin_arg == LabPwm::k2_4)
+    {
+        LPC_PINCON->PINSEL4 |= (1<<8);
+    }
+    if(pwm_pin_arg == LabPwm::k2_5)
+    {
+        LPC_PINCON->PINSEL4 |= (1<<10);
+    }
+}
+
+void LabPwm::PwmInitSingleEdgeMode(uint32_t frequency_Hz)
+{
+
+    LPC_PWM1->PR = 11; //1 micro-second resolution
+    LPC_PWM1->MR0 = 1000000; //20000us = 20ms period duration
+    LPC_PWM1->MCR = (1<<0); //Reset PWM TC on PWM1MR0 match
+    LPC_PWM1->LER = (1<<0); //update values in MR0 and MR1
+    LPC_PWM1->PCR = (1<<9)|(1<<10)|(1<<11)|(1<<12)|(1<<13)|(1<<14); //enable PWM output
+    LPC_PWM1->TCR = (1<<0) | (1<<3); //enable counters and PWM Mode
+
+}
+
+void LabPwm::SetDutyCycle(LabPwm::Pin pwm_pin_arg, float duty_cycle_percentage)
+{
+    if(pwm_pin_arg == LabPwm::k2_0)
+    {
+        LPC_PWM1->MR1 = LPC_PWM1->MR0*duty_cycle_percentage/100;
+        LPC_PWM1->LER |= (1<<1);
+    }
+
+    else if(pwm_pin_arg == LabPwm::k2_1)
+    {
+
+        LPC_PWM1->MR2 = LPC_PWM1->MR0*duty_cycle_percentage/100;
+        LPC_PWM1->LER = (1<<2);
+    }
+
+    else if(pwm_pin_arg == LabPwm::k2_2)
+    {
+        LPC_PWM1->MR3 = LPC_PWM1->MR0*duty_cycle_percentage/100;
+        LPC_PWM1->LER |= (1<<3);
+    }
+
+    else if(pwm_pin_arg == LabPwm::k2_3)
+    {
+        LPC_PWM1->MR4 = LPC_PWM1->MR0*duty_cycle_percentage/100;
+        LPC_PWM1->LER |= (1<<4);
+    }
+
+    else if(pwm_pin_arg == LabPwm::k2_4)
+    {
+        LPC_PWM1->MR5 = LPC_PWM1->MR0*duty_cycle_percentage/100;
+        LPC_PWM1->LER |= (1<<5);
+    }
+
+    else if(pwm_pin_arg == LabPwm::k2_5)
+    {
+        LPC_PWM1->MR6 = LPC_PWM1->MR0*duty_cycle_percentage/100;
+        LPC_PWM1->LER |= (1<<6);
+    }
+    else
+    {
+        ;
+    }
+}
+

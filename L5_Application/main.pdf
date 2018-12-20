@@ -1,0 +1,239 @@
+/*
+ *     SocialLedge.com - Copyright (C) 2013
+ *
+ *     This file is part of free software framework for embedded processors.
+ *     You can use it and/or distribute it as long as this copyright header
+ *     remains unmodified.  The code is free for personal use and requires
+ *     permission to use in a commercial product.
+ *
+ *      THIS SOFTWARE IS PROVIDED "AS IS".  NO WARRANTIES, WHETHER EXPRESS, IMPLIED
+ *      OR STATUTORY, INCLUDING, BUT NOT LIMITED TO, IMPLIED WARRANTIES OF
+ *      MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE APPLY TO THIS SOFTWARE.
+ *      I SHALL NOT, IN ANY CIRCUMSTANCES, BE LIABLE FOR SPECIAL, INCIDENTAL, OR
+ *      CONSEQUENTIAL DAMAGES, FOR ANY REASON WHATSOEVER.
+ *
+ *     You can reach the author of this software at :
+ *          p r e e t . w i k i @ g m a i l . c o m
+ */
+
+/**
+ * @file
+ * @brief This is the application entry point.
+ * 			FreeRTOS and stdio printf is pre-configured to use uart0_min.h before main() enters.
+ * 			@see L0_LowLevel/lpc_sys.h if you wish to override printf/scanf functions.
+ *
+ */
+#include "LPC17xx.h"
+#include "tasks.hpp"
+#include "task.h"
+#include "examples/examples.hpp"
+#include "LabGPIO.hpp"
+#include "FreeRTOS.h"
+#include "uart0_min.h"
+#include "semphr.h"
+#include "stdio.h"
+#include "utilities.h"
+#include "io.hpp"
+#include "storage.hpp"
+#include "event_groups.h"
+#include "rtc.h"
+
+#define BIT_1   ( 1 << 1 )
+#define BIT_2   ( 1 << 2 )
+
+QueueHandle_t q;
+TaskHandle_t task1,task2;
+
+/* Declare a variable to hold the created event group. */
+EventGroupHandle_t xCreatedEventGroup;
+const TickType_t xTicksToWait = 1000 / portTICK_PERIOD_MS;
+
+const uint32_t STACK_SIZE = 2048;
+
+void Cpu_Log(void)
+{
+
+    // Note:  If there is a linker error and the FreeRTOS function is not included, just
+    // hack tasks.c at FreeRTOS source code and force include uxTaskGetSystemState()
+    // Enum to char : eRunning, eReady, eBlocked, eSuspended, eDeleted
+    const char * const taskStatusTbl[] = { "RUN", "RDY", "BLK", "SUS", "DEL" };
+
+    // Limit the tasks to avoid heap allocation.
+    const unsigned portBASE_TYPE maxTasks = 16;
+    TaskStatus_t status[maxTasks];
+    uint32_t totalRunTime = 0;
+    uint32_t tasksRunTime = 0;
+
+    uint32_t offset=0;
+
+    const unsigned portBASE_TYPE uxArraySize =
+            uxTaskGetSystemState(&status[0], maxTasks, &totalRunTime);
+
+    printf("%10s Sta Pr Stack CPU%%          Time\n", "Name");
+    for(unsigned priorityNum = 0; priorityNum < configMAX_PRIORITIES; priorityNum++)
+    {
+        /* Print in sorted priority order */
+        for (unsigned i = 0; i < uxArraySize; i++) {
+            TaskStatus_t *e = &status[i];
+            if (e->uxBasePriority == priorityNum) {
+                tasksRunTime += e->ulRunTimeCounter;
+
+                const uint32_t cpuPercent = (0 == totalRunTime) ? 0 : e->ulRunTimeCounter / (totalRunTime/100);
+                const uint32_t timeUs = e->ulRunTimeCounter;
+                const uint32_t stackInBytes = (4 * e->usStackHighWaterMark);
+
+                char buff[50];
+                sprintf(buff,"%10s %s %2u %5u %4u %10u us\n",
+                        e->pcTaskName, taskStatusTbl[e->eCurrentState], e->uxBasePriority,
+                        stackInBytes, cpuPercent, timeUs);
+
+
+                Storage::write("CPU.txt", buff, sizeof(buff), offset);
+
+                Storage::read("CPU.txt",  buff, sizeof(buff), (offset));
+                printf("%s", buff);
+                offset += 50;
+            }
+        }
+    }
+
+    /* Overhead is the time not accounted towards any of the tasks.
+     * For example, when an ISR happens, that is not part of a task's CPU usage.
+     */
+    const uint32_t overheadUs = (totalRunTime - tasksRunTime);
+    const uint32_t overheadPercent = overheadUs / (totalRunTime / 100);
+    char buff[50];
+    sprintf(buff,"%10s --- -- ----- %4u %10u uS\n",
+            "(overhead)", overheadPercent, overheadUs);
+
+    if (uxTaskGetNumberOfTasks() > maxTasks)
+    {
+        printf("** WARNING: Only reported first %u tasks\n", maxTasks);
+    }
+
+}
+
+void producer_task(void *p)
+{
+    EventBits_t myBits;
+    int x;
+    uint8_t i;
+    uint16_t sum=0;
+    while (1)
+    {
+        sum=0;
+        for(i=0;i<100;i++)
+        {
+            sum = sum + LS.getRawValue();
+            delay_ms(1);
+            //printf("%d)val:%d\n",i,sum);
+        }
+
+        x = sum/100;
+        //send queue
+
+        xQueueSend(q, &x, 100);
+
+        xEventGroupSetBits(xCreatedEventGroup,BIT_1);
+    }
+}
+
+void consumer_task(void *p)
+{
+    EventBits_t myBits;
+    int x;
+    rtc_t rtc;
+    uint32_t offset=0;
+    while(1)
+    {
+        if(xQueueReceive(q, &x, portMAX_DELAY))
+        {
+            char buff[32];
+            rtc = rtc_gettime();
+            sprintf(buff,"%d:%d",rtc.min,rtc.sec);
+            Storage::write("sensor.txt",buff,sizeof(buff),0);
+            Storage::write("sensor.txt",&x,sizeof(int),offset);
+            Storage::read("sensor.txt",buff,sizeof(buff),0);
+            Storage::read("sensor.txt",&x,sizeof(int),offset);
+            printf("%s  ",buff);
+            printf("%d\n",x);
+            offset += 32;
+        }
+        xEventGroupSetBits(xCreatedEventGroup,BIT_2);
+    }
+}
+
+void watch_dog_task_user(void *p)
+{
+    while(1)
+    {
+        EventBits_t myBits;
+        rtc_t rtc;
+        uint16_t min;
+        uint32_t offset=0;
+        //Wait for bits to set
+
+        myBits = xEventGroupWaitBits(xCreatedEventGroup,(BIT_1)|(BIT_2),pdTRUE,pdTRUE,1000);
+
+
+        if((myBits & (BIT_1 | BIT_2)) == (BIT_1 | BIT_2))
+        {
+            /* Both bit 1 and bit 2 set*/
+            if(rtc.min != min)
+            {
+                Cpu_Log();
+                min = rtc.min;
+            }
+        }
+        else if( ( myBits & BIT_1 ) != 0)
+        {
+            char buff[32];
+            rtc = rtc_gettime();
+            sprintf (buff, "%d:%d,Consumer task suspended\n", rtc.min, rtc.sec);
+            Storage::write("stuck.txt", buff, sizeof(buff), offset);
+            Storage::read("stuck.txt",  buff, sizeof(buff), offset);
+            printf("%s", buff);
+            offset += 32;
+
+        }
+        else if( ( myBits & BIT_2 ) != 0)
+        {
+            char buff[32];
+            rtc = rtc_gettime();
+            sprintf (buff, "%d:%d,Producer task suspended\n", rtc.min, rtc.sec);
+            Storage::write("stuck.txt", buff, sizeof(buff), offset);
+            Storage::read("stuck.txt",  buff, sizeof(buff), offset);
+            printf("%s", buff);
+            offset += 32;
+        }
+
+        else
+        {
+            char buff[32];
+            rtc = rtc_gettime();
+            sprintf (buff, "%d:%d,Both task suspended\n", rtc.min, rtc.sec);
+            Storage::write("stuck.txt", buff, sizeof(buff), offset);
+            Storage::read("stuck.txt",  buff, sizeof(buff), offset);
+            printf("%s", buff);
+            offset += 32;
+        }
+
+        xEventGroupClearBits( xCreatedEventGroup, (BIT_1 | BIT_2 ) );
+    }
+}
+
+
+int main(void)
+{
+    q = xQueueCreate(10, sizeof(int));
+    xCreatedEventGroup = xEventGroupCreate();
+
+
+    LS.init();
+    xTaskCreate(consumer_task,"Consumer",STACK_SIZE/2,NULL,PRIORITY_MEDIUM,&task1);
+    xTaskCreate(producer_task,"producer",STACK_SIZE/2,NULL,PRIORITY_MEDIUM,&task2);
+    xTaskCreate(watch_dog_task_user,"Watch_Dog",STACK_SIZE,NULL,PRIORITY_HIGH,NULL);
+    scheduler_add_task(new terminalTask(PRIORITY_HIGH));
+    scheduler_start();
+    return -1;
+}
