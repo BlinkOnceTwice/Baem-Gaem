@@ -1,8 +1,7 @@
 -----------------------------------------------------------------------------
 To get started, have a look at L5_Application/main.cpp and the example tasks.
 
-You can change a #define 0 to #define 1 for one example at a time and look
-through the code of each example.
+The code is for the snake game implementation on LPC1758 microcontroller.
 
 The general idea is to interact with the project through terminal commands.
 -----------------------------------------------------------------------------
