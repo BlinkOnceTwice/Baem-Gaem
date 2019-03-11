@@ -2,6 +2,7 @@
 To get started, have a look at L5_Application/main.cpp and the example tasks.
 
 The code is for the snake game implementation on LPC1758 microcontroller and 32x32 Adafruit LED matrix display.
+The movement of sm=nake can be controlled by joystick or accelerometer inputs from SJOne board.
 
 -----------------------------------------------------------------------------
 See "ChangeLog" for the changes made to the sample project source code.
